@@ -3,6 +3,12 @@
 This class authenticates against a cognito identity pool to obtain
 a token suitable for authenticating web access in the pool.
 
+This is a copy of AuthenticationHelper taken from 
+
+[AuthenticationHelper.java](https://github.com/aws-samples/aws-cognito-java-desktop-app/blob/master/src/main/java/com/amazonaws/sample/cognitoui/AuthenticationHelper.java)
+
+modified for **aws-sdk-java-2**
+
 It is a single class with constructor.
 
 ```
