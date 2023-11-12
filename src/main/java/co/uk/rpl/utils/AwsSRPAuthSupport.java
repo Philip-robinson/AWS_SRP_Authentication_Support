@@ -36,10 +36,12 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import java.security.*;
 import java.text.SimpleDateFormat;
 import java.util.*;
+import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import org.slf4j.Logger;
 import static org.slf4j.LoggerFactory.getLogger;
+import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.cognitoidentityprovider.CognitoIdentityProviderClient;
 import software.amazon.awssdk.services.cognitoidentityprovider.model.AuthFlowType;
 import software.amazon.awssdk.services.cognitoidentityprovider.model.ChallengeNameType;
@@ -58,16 +60,18 @@ public class AwsSRPAuthSupport {
         private final String companyId;
         private final String userPoolId;
         private final String userPoolClientId;
+        @Getter(AccessLevel.NONE)
         private final String region;
         private final String secretKey;
         private final String username;
         private final String password;
         private final long timeBeforeExpiryToRefresh;
-        private CognitoIdentityProviderClient cognitoIdp;
         public boolean hasSecretKey(){
             return secretKey != null && secretKey.length()>0;
         }
-
+        Region getRegion(){
+            return Region.of(region);
+        }
         @Override
         public String toString() {
             return "Config{" + "companyId=" + companyId +
@@ -147,7 +151,6 @@ public class AwsSRPAuthSupport {
      * @param timeBeforeExpiryToRefresh number of seconds before expiry of
      *                                  the token when it should be considdered
      *                                  expired an a new one requested.
-     * @param cognitoIdp instance of cognito Identity Provider to use 
      */
     public AwsSRPAuthSupport(String companyId,
                              String userPoolId,
@@ -156,8 +159,7 @@ public class AwsSRPAuthSupport {
                              String secretKey,
                              String username,
                              String password,
-                             long timeBeforeExpiryToRefresh,
-                             CognitoIdentityProviderClient cognitoIdp) {
+                             long timeBeforeExpiryToRefresh){
         config= new Config(companyId,
                            userPoolId,
                            userPoolClientId,
@@ -165,8 +167,7 @@ public class AwsSRPAuthSupport {
                            secretKey,
                            username,
                            password,
-                           timeBeforeExpiryToRefresh,
-                           cognitoIdp);
+                           timeBeforeExpiryToRefresh);
         do {
             a = new BigInteger(EPHEMERAL_KEY_LENGTH, SECURE_RANDOM).mod(N);
             A = g.modPow(a, N);
@@ -215,7 +216,7 @@ public class AwsSRPAuthSupport {
         return key;
     }
     
-    public String getToken(){
+    public synchronized String getToken(){
         if (token == null ||
             expiresAt<currentTimeMillis()-config.getTimeBeforeExpiryToRefresh()*1000)
             performSRPAuthentication();
@@ -230,14 +231,16 @@ public class AwsSRPAuthSupport {
         throws SecurityException{
 
         InitiateAuthRequest initiateAuthRequest = initiateUserSrpAuthRequest();
-        var initiateAuthResult = config.getCognitoIdp().
-                initiateAuth(initiateAuthRequest);
+        var cognitoIdp = CognitoIdentityProviderClient.builder().
+                    region(config.getRegion()).
+                    build();
+        var initiateAuthResult = cognitoIdp. initiateAuth(initiateAuthRequest);
         if (ChallengeNameType.PASSWORD_VERIFIER.equals(
                 initiateAuthResult.challengeName())) {
             var challengeRequest = userSrpAuthRequest(
                     initiateAuthResult, config.getPassword(),
                     initiateAuthRequest.authParameters().get("SECRET_HASH"));
-            var result = config.getCognitoIdp().respondToAuthChallenge(challengeRequest);
+            var result = cognitoIdp.respondToAuthChallenge(challengeRequest);
             token = result.authenticationResult().idToken();
             var expiresIn = result.authenticationResult().expiresIn()-
                         config.getTimeBeforeExpiryToRefresh();
